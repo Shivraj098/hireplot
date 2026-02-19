@@ -11,5 +11,135 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url = env("DATABASE_URL")
+ 
+}
+
+enum JobStatus {
+  SAVED
+  APPLIED
+  INTERVIEW
+  OFFER
+  REJECTED
+}
+
+model User {
+  id             String            @id @default(uuid())
+  name           String?
+  email          String            @unique
+  password       String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  resumes        Resume[]
+  jobs           Job[]
+  applications   JobApplication[]
+}
+
+model Resume {
+  id          String           @id @default(uuid())
+  userId      String
+  title       String
+  content     Json             // structured resume JSON
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  user        User             @relation(fields: [userId], references: [id])
+  versions    ResumeVersion[]
+}
+
+model ResumeVersion {
+  id           String          @id @default(uuid())
+  resumeId     String
+  jobId        String?
+  content      Json            // full snapshot
+  createdAt    DateTime        @default(now())
+
+  resume       Resume          @relation(fields: [resumeId], references: [id])
+  job          Job?            @relation(fields: [jobId], references: [id])
+  atsResults   ATSResult[]
+  suggestions  AISuggestion[]
+  applications JobApplication[]
+
+}
+
+model Job {
+  id           String            @id @default(uuid())
+  userId       String
+  title        String
+  company      String
+  location     String?
+  jobLink      String?
+  description  String
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  user         User              @relation(fields: [userId], references: [id])
+  applications JobApplication[]
+  versions     ResumeVersion[]
+  skillGaps    SkillGap[]
+  interviewPreps InterviewPrep[]
+}
+
+model JobApplication {
+  id           String      @id @default(uuid())
+  userId       String
+  jobId        String
+  resumeVersionId String
+  status       JobStatus   @default(SAVED)
+  notes        String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  user         User        @relation(fields: [userId], references: [id])
+  job          Job         @relation(fields: [jobId], references: [id])
+  resumeVersion ResumeVersion @relation(fields: [resumeVersionId], references: [id])
+}
+
+model ATSResult {
+  id             String        @id @default(uuid())
+  resumeVersionId String
+  score          Int
+  matchedKeywords Json
+  missingKeywords Json
+  weakKeywords    Json
+  createdAt       DateTime     @default(now())
+
+  resumeVersion  ResumeVersion @relation(fields: [resumeVersionId], references: [id])
+}
+
+model AISuggestion {
+  id              String        @id @default(uuid())
+  resumeVersionId String
+  section         String
+  originalContent Json
+  suggestedContent Json
+  applied         Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+
+  resumeVersion   ResumeVersion @relation(fields: [resumeVersionId], references: [id])
+}
+
+model SkillGap {
+  id          String     @id @default(uuid())
+  jobId       String
+  skill       String
+  priority    String
+  estimatedTime String
+  reasoning   String
+  createdAt   DateTime   @default(now())
+
+  job         Job        @relation(fields: [jobId], references: [id])
+}
+
+model InterviewPrep {
+  id            String     @id @default(uuid())
+  jobId         String
+  questions     Json
+  starDrafts    Json
+  technicalTopics Json
+  createdAt     DateTime   @default(now())
+
+  job           Job        @relation(fields: [jobId], references: [id])
+  
+
 }
