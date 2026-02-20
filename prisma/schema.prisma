@@ -32,6 +32,7 @@ model User {
   updatedAt      DateTime          @updatedAt
 
   resumes        Resume[]
+  resumeVersions ResumeVersion[]
   jobs           Job[]
   applications   JobApplication[]
   sessions Session[]
@@ -40,30 +41,35 @@ model User {
 }
 
 model Resume {
-  id          String           @id @default(uuid())
-  userId      String
-  title       String
-  content     Json             // structured resume JSON
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
 
-  user        User             @relation(fields: [userId], references: [id])
-  versions    ResumeVersion[]
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  versions  ResumeVersion[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
-model ResumeVersion {
-  id           String          @id @default(uuid())
-  resumeId     String
-  jobId        String?
-  content      Json            // full snapshot
-  createdAt    DateTime        @default(now())
 
-  resume       Resume          @relation(fields: [resumeId], references: [id])
-  job          Job?            @relation(fields: [jobId], references: [id])
+model ResumeVersion {
+  id           String   @id @default(uuid())
+  resumeId     String
+  userId       String
+  jobId        String?
+  content      Json
+  isBase       Boolean  @default(false)
+
+  resume       Resume   @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job          Job?     @relation(fields: [jobId], references: [id])
+
   atsResults   ATSResult[]
   suggestions  AISuggestion[]
   applications JobApplication[]
 
+  createdAt    DateTime @default(now())
 }
 
 model Job {

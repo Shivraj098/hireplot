@@ -1,5 +1,4 @@
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 
 export async function proxy(req: NextRequest) {
@@ -8,22 +7,20 @@ export async function proxy(req: NextRequest) {
     secret: process.env.AUTH_SECRET,
   });
 
-  const isLoggedIn = !!token;
-
   const { pathname } = req.nextUrl;
 
-  const isAuthPage =
+  const isLoggedIn = !!token;
+  const isAuthRoute =
     pathname.startsWith("/signin") ||
     pathname.startsWith("/signup");
 
-  const isProtected =
-    pathname.startsWith("/dashboard");
+  const isDashboardRoute = pathname.startsWith("/dashboard");
 
-  if (!isLoggedIn && isProtected) {
+  if (!isLoggedIn && isDashboardRoute) {
     return NextResponse.redirect(new URL("/signin", req.url));
   }
 
-  if (isLoggedIn && isAuthPage) {
+  if (isLoggedIn && isAuthRoute) {
     return NextResponse.redirect(new URL("/dashboard", req.url));
   }
 
