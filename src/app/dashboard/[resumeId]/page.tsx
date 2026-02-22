@@ -1,3 +1,4 @@
+import { createTailoredVersionFromBase } from "../actions";
 import { prisma } from "@/lib/db/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
@@ -8,7 +9,7 @@ import {
   addSkill,
   removeSkill,
   addEducation,
-  removeEducation, // ✅ added import
+  removeEducation,
 } from "../actions";
 
 interface Props {
@@ -32,7 +33,11 @@ export default async function ResumePage({ params }: Props) {
       userId: user.id,
     },
     include: {
-      versions: true,
+      versions: {
+        orderBy: {
+          createdAt: "desc",
+        },
+      },
     },
   });
 
@@ -40,7 +45,15 @@ export default async function ResumePage({ params }: Props) {
     redirect("/dashboard");
   }
 
-  const baseVersion = resume.versions.find((v) => v.isBase);
+  const baseVersion = resume.versions.find((v) => v.versionType === "BASE");
+
+  const tailoredVersions = resume.versions.filter(
+    (v) => v.versionType === "TAILORED",
+  );
+
+  if (!baseVersion) {
+    throw new Error("Base version missing");
+  }
 
   const content = (baseVersion?.content ?? {}) as {
     summary?: string;
@@ -89,6 +102,7 @@ export default async function ResumePage({ params }: Props) {
           Save Summary
         </button>
       </form>
+
       {/* SKILLS SECTION */}
       <div className="space-y-4">
         <h2 className="text-xl font-semibold">Skills</h2>
@@ -140,6 +154,7 @@ export default async function ResumePage({ params }: Props) {
           Add Skill
         </button>
       </form>
+
       {/* EDUCATION SECTION */}
       <div className="space-y-4">
         <h2 className="text-xl font-semibold">Education</h2>
@@ -239,7 +254,7 @@ export default async function ResumePage({ params }: Props) {
                   <form
                     action={async () => {
                       "use server";
-                      await removeExperience(resumeId, index); // ✅ fixed
+                      await removeExperience(resumeId, index);
                     }}
                   >
                     <button type="submit" className="text-red-500 text-sm">
@@ -298,6 +313,46 @@ export default async function ResumePage({ params }: Props) {
           Add Experience
         </button>
       </form>
+
+      {/* VERSION HISTORY SECTION */}
+      <div className="mt-10 space-y-4">
+        <h2 className="text-xl font-semibold">Version History</h2>
+
+        {tailoredVersions.length === 0 && (
+          <p className="text-muted-foreground">No tailored versions yet.</p>
+        )}
+
+        {tailoredVersions.map((version) => (
+          <div key={version.id} className="border rounded-lg p-4">
+            <div className="flex justify-between">
+              <span className="font-medium">Tailored Version</span>
+              <span className="text-sm text-muted-foreground">
+                {new Date(version.createdAt).toLocaleString()}
+              </span>
+            </div>
+
+            <pre className="mt-3 text-sm bg-muted p-3 rounded">
+              {JSON.stringify(version.content, null, 2)}
+            </pre>
+          </div>
+        ))}
+      </div>
+
+      <div className="border-t pt-8">
+        <form
+          action={async () => {
+            "use server";
+            await createTailoredVersionFromBase(resumeId);
+          }}
+        >
+          <button
+            type="submit"
+            className="bg-blue-600 text-white px-4 py-2 rounded"
+          >
+            Create Tailored Version (Test)
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
