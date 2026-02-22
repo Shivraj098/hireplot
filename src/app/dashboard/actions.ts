@@ -367,11 +367,26 @@ export async function createTailoredVersion(
   return tailoredVersion;
 }
 
-export async function createTailoredVersionFromBase(resumeId: string) {
+export async function createTailoredVersionForJob(
+  resumeId: string,
+  jobId: string
+) {
   const user = await getCurrentUser();
 
   if (!user?.id) {
     throw new Error("Unauthorized");
+  }
+
+  // Verify job belongs to user
+  const job = await prisma.job.findFirst({
+    where: {
+      id: jobId,
+      userId: user.id,
+    },
+  });
+
+  if (!job) {
+    throw new Error("Job not found");
   }
 
   const baseVersion = await prisma.resumeVersion.findFirst({
@@ -390,13 +405,61 @@ export async function createTailoredVersionFromBase(resumeId: string) {
     data: {
       resumeId,
       userId: user.id,
-      content: JSON.parse(JSON.stringify(baseVersion.content)),
+      jobId: job.id,
+      content: (baseVersion.content ?? {}) as Prisma.InputJsonValue,
       versionType: "TAILORED",
       parentId: baseVersion.id,
     },
   });
 
   revalidatePath(`/dashboard/${resumeId}`);
+  revalidatePath("/dashboard");
 
   return tailoredVersion;
+}
+
+export async function createJob(data: {
+  title: string;
+  company: string;
+  description: string;
+  location?: string;
+  jobLink?: string;
+}) {
+  const user = await getCurrentUser();
+
+  if (!user?.id) {
+    throw new Error("Unauthorized");
+  }
+
+  const job = await prisma.job.create({
+    data: {
+      userId: user.id,
+      title: data.title,
+      company: data.company,
+      description: data.description,
+      location: data.location,
+      jobLink: data.jobLink,
+    },
+  });
+
+  revalidatePath("/dashboard");
+
+  return job;
+}
+
+export async function deleteJob(jobId: string) {
+  const user = await getCurrentUser();
+
+  if (!user?.id) {
+    throw new Error("Unauthorized");
+  }
+
+  await prisma.job.deleteMany({
+    where: {
+      id: jobId,
+      userId: user.id,
+    },
+  });
+
+  revalidatePath("/dashboard");
 }
