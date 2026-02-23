@@ -1,5 +1,5 @@
 "use server";
-
+import { tailorResumeWithAI } from "@/lib/ai/tailor";
 import { prisma } from "@/lib/db/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
@@ -462,4 +462,76 @@ export async function deleteJob(jobId: string) {
   });
 
   revalidatePath("/dashboard");
+}
+
+
+
+
+
+
+
+
+
+
+import { calculateSkillGap } from "@/lib/ai/skill-gap";
+
+export async function createTailoredVersionWithAI(
+  resumeId: string,
+  jobId: string
+) {
+  const user = await getCurrentUser();
+  if (!user?.id) throw new Error("Unauthorized");
+
+  const baseVersion = await prisma.resumeVersion.findFirst({
+    where: {
+      resumeId,
+      userId: user.id,
+      versionType: "BASE",
+    },
+  });
+
+  const job = await prisma.job.findFirst({
+    where: {
+      id: jobId,
+      userId: user.id,
+    },
+  });
+
+  if (!baseVersion || !job) {
+    throw new Error("Invalid data");
+  }
+
+  // AI rewrite (currently mock-safe)
+  const tailoredContent = await tailorResumeWithAI(
+    baseVersion.content as ResumeContent,
+    job.description
+  );
+
+  const newVersion = await prisma.resumeVersion.create({
+    data: {
+      resumeId,
+      userId: user.id,
+      jobId,
+      content: tailoredContent,
+      versionType: "TAILORED",
+    },
+  });
+
+  // Calculate ATS score deterministically
+  const skillGap = calculateSkillGap(
+    tailoredContent,
+    job.description
+  );
+
+  await prisma.aTSResult.create({
+  data: {
+    resumeVersionId: newVersion.id,
+    score: skillGap.matchPercentage,
+    matchedKeywords: skillGap.matchedSkills,
+    missingKeywords: skillGap.missingSkills,
+    weakKeywords: [],
+  },
+});
+
+  return newVersion;
 }

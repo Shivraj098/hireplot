@@ -75,7 +75,7 @@ model ResumeVersion {
   parent       ResumeVersion? @relation("VersionBranch", fields: [parentId], references: [id])
   children     ResumeVersion[] @relation("VersionBranch")
   applications JobApplication[]
-  atsResults   ATSResult[]
+  aTSResults   ATSResult[]
   suggestions  AISuggestion[]
 }
 
