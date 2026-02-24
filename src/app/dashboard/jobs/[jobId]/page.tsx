@@ -27,6 +27,7 @@ export default async function JobDetailPage({ params }: Props) {
         include: {
           resume: true,
           atsResults: true,
+         
         },
         orderBy: {
           createdAt: "desc",

@@ -1,4 +1,5 @@
 "use server";
+import { generateSectionSuggestions,StructuredResumeContent } from "@/lib/ai/suggestion-engine";
 import { tailorResumeWithAI } from "@/lib/ai/tailor";
 import { prisma } from "@/lib/db/prisma";
 import { getCurrentUser } from "@/lib/auth";
@@ -532,6 +533,22 @@ export async function createTailoredVersionWithAI(
     weakKeywords: [],
   },
 });
+
+const structuredSuggestions = generateSectionSuggestions(
+    tailoredContent as StructuredResumeContent,
+    skillGap
+  );
+
+  await prisma.aISuggestion.createMany({
+    data: structuredSuggestions.map((s) => ({
+      resumeVersionId: newVersion.id,
+      section: s.section,
+      originalContent: s.originalContent,
+      suggestedContent: s.suggestedContent,
+      applied: false,
+    })),
+  });
+  
 
   return newVersion;
 }
