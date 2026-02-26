@@ -89,6 +89,8 @@ model Job {
   description  String
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
+  status       JobStatus         @default(SAVED)
+  notes        String?
 
   user         User              @relation(fields: [userId], references: [id])
   applications JobApplication[]
@@ -113,15 +115,15 @@ model JobApplication {
 }
 
 model ATSResult {
-  id             String        @id @default(uuid())
-  resumeVersionId String
-  score          Int
-  matchedKeywords Json
-  missingKeywords Json
-  weakKeywords    Json
-  createdAt       DateTime     @default(now())
+  id               String   @id @default(uuid())
+  resumeVersionId  String   @unique
+  score            Int
+  matchedKeywords  Json
+  missingKeywords  Json
+  weakKeywords     Json
+  createdAt        DateTime @default(now())
 
-  resumeVersion  ResumeVersion @relation(fields: [resumeVersionId], references: [id])
+  resumeVersion    ResumeVersion @relation(fields: [resumeVersionId], references: [id])
 }
 
 model AISuggestion {
@@ -152,6 +154,7 @@ model InterviewPrep {
   id            String     @id @default(uuid())
   jobId         String
   questions     Json
+  type          String
   starDrafts    Json
   technicalTopics Json
   createdAt     DateTime   @default(now())

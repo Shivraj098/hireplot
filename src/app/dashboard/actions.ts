@@ -8,7 +8,10 @@ import { prisma } from "@/lib/db/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
-import { generateSkillGaps } from "@/lib/ai/skillgap-generator";
+import { JobStatus, } from "@prisma/client";
+
+import { generateInterviewPrep } from "@/lib/ai/interview-generator";
+import { generateAIInterviewPrep } from "@/lib/ai/interview-ai";
 
 type ExperienceItem = {
   company: string;
@@ -526,8 +529,6 @@ export async function createTailoredVersionWithAI(
     },
   });
 
-  
-
   const structuredSuggestions = generateSectionSuggestions(
     tailoredContent as StructuredResumeContent,
     skillGap,
@@ -543,35 +544,82 @@ export async function createTailoredVersionWithAI(
     })),
   });
 
-
-
-
-
   await prisma.skillGap.deleteMany({
-    where: {
-      jobId: job.id,
-    },
+    where: { jobId: job.id },
   });
-  const gaps = generateSkillGaps(job.description, skillGap);
 
-  if (gaps.length > 0) {
+  const newGaps = skillGap.missingSkills.map((skill) => {
+    const frequency = skillGap.jobFrequencyMap?.[skill] ?? 1;
+
+    let priority: "HIGH" | "MEDIUM" | "LOW";
+
+    if (frequency >= 2) {
+      priority = "HIGH";
+    } else if (frequency === 1) {
+      priority = "MEDIUM";
+    } else {
+      priority = "LOW";
+    }
+
+    return {
+      jobId: job.id,
+      skill,
+      priority,
+      estimatedTime:
+        priority === "HIGH"
+          ? "2-4 weeks"
+          : priority === "MEDIUM"
+            ? "1-2 weeks"
+            : "Few days",
+      reasoning:
+        frequency >= 2
+          ? "This skill appears multiple times in the job description."
+          : "This skill is mentioned in the job description.",
+    };
+  });
+
+  if (newGaps.length > 0) {
     await prisma.skillGap.createMany({
-      data: gaps.map((gap) => ({
-        jobId: job.id,
-        skill: gap.skill,
-        priority: gap.priority,
-        estimatedTime: gap.estimatedTime,
-        reasoning: gap.reasoning,
-      })),
+      data: newGaps,
     });
   }
+
+  // Delete previous InterviewPrep for this job
+  await prisma.interviewPrep.deleteMany({
+    where: { jobId: job.id },
+  });
+
+  let interviewData;
+
+  try {
+    interviewData = await generateAIInterviewPrep(
+      job.title,
+      job.description,
+      skillGap.matchedSkills,
+    );
+  } catch {
+    interviewData = generateInterviewPrep(
+      job.title,
+      job.description,
+      skillGap.matchedSkills,
+    );
+  }
+
+  await prisma.interviewPrep.create({
+    data: {
+      jobId: job.id,
+      type: "FULL", // You can later split into TECHNICAL / BEHAVIORAL
+      questions: interviewData.questions,
+      starDrafts: interviewData.starDrafts,
+      technicalTopics: interviewData.technicalTopics,
+    },
+  });
 
   return newVersion;
 }
 
 export async function applySuggestion(suggestionId: string) {
   const user = await getCurrentUser();
-
   if (!user?.id) {
     throw new Error("Unauthorized");
   }
@@ -587,13 +635,17 @@ export async function applySuggestion(suggestionId: string) {
     throw new Error("Suggestion not found");
   }
 
-  // Ensure user owns this resume version
   if (suggestion.resumeVersion.userId !== user.id) {
     throw new Error("Forbidden");
   }
 
   const resumeVersion = suggestion.resumeVersion;
 
+  if (!resumeVersion.jobId) {
+    throw new Error("No job linked to this resume version");
+  }
+
+  // 1️⃣ Update Resume Content
   const content = (resumeVersion.content ?? {}) as Record<string, unknown>;
 
   const updatedContent = {
@@ -608,10 +660,181 @@ export async function applySuggestion(suggestionId: string) {
     },
   });
 
+  // 2️⃣ Mark Suggestion Applied
   await prisma.aISuggestion.update({
     where: { id: suggestionId },
     data: { applied: true },
   });
 
+  // 3️⃣ Fetch Job
+  const job = await prisma.job.findFirst({
+    where: {
+      id: resumeVersion.jobId,
+      userId: user.id,
+    },
+  });
+
+  if (!job) {
+    throw new Error("Job not found");
+  }
+
+  // 4️⃣ Recalculate ATS
+  const skillGap = calculateSkillGap(updatedContent, job.description);
+
+  // 5️⃣ Upsert ATS Result (1 per ResumeVersion)
+  await prisma.aTSResult.upsert({
+    where: {
+      resumeVersionId: resumeVersion.id,
+    },
+    update: {
+      score: skillGap.matchPercentage,
+      matchedKeywords: skillGap.matchedSkills,
+      missingKeywords: skillGap.missingSkills,
+      weakKeywords: [],
+    },
+    create: {
+      resumeVersionId: resumeVersion.id,
+      score: skillGap.matchPercentage,
+      matchedKeywords: skillGap.matchedSkills,
+      missingKeywords: skillGap.missingSkills,
+      weakKeywords: [],
+    },
+  });
+
+  // 6️⃣ Regenerate Skill Gaps Using Frequency Map
+  await prisma.skillGap.deleteMany({
+    where: { jobId: job.id },
+  });
+
+  const newGaps = skillGap.missingSkills.map((skill) => {
+    const frequency = skillGap.jobFrequencyMap?.[skill] ?? 1;
+
+    let priority: "HIGH" | "MEDIUM" | "LOW";
+
+    if (frequency >= 2) {
+      priority = "HIGH";
+    } else if (frequency === 1) {
+      priority = "MEDIUM";
+    } else {
+      priority = "LOW";
+    }
+
+    return {
+      jobId: job.id,
+      skill,
+      priority,
+      estimatedTime:
+        priority === "HIGH"
+          ? "2-4 weeks"
+          : priority === "MEDIUM"
+            ? "1-2 weeks"
+            : "Few days",
+      reasoning:
+        frequency >= 2
+          ? "This skill appears multiple times in the job description."
+          : "This skill is mentioned in the job description.",
+    };
+  });
+
+  if (newGaps.length > 0) {
+    await prisma.skillGap.createMany({
+      data: newGaps,
+    });
+  }
+
   revalidatePath(`/dashboard/jobs/${resumeVersion.jobId}`);
+}
+
+export async function regenerateInterviewPrep(jobId: string) {
+  const user = await getCurrentUser();
+  if (!user?.id) throw new Error("Unauthorized");
+
+  const job = await prisma.job.findUnique({
+    where: { id: jobId },
+    include: {
+      versions: {
+        orderBy: { createdAt: "desc" },
+      },
+    },
+  });
+
+  if (!job) throw new Error("Job not found");
+
+  const latestVersion = job.versions[0];
+  if (!latestVersion) throw new Error("No resume version found");
+
+  const skillGap = await prisma.aTSResult.findFirst({
+    where: { resumeVersionId: latestVersion.id },
+  });
+
+  let interviewData;
+
+  try {
+    interviewData = await generateAIInterviewPrep(
+      job.title,
+      job.description,
+      (skillGap?.matchedKeywords as string[]) ?? [],
+    );
+  } catch {
+    interviewData = generateInterviewPrep(
+      job.title,
+      job.description,
+      (skillGap?.matchedKeywords as string[]) ?? [],
+    );
+  }
+
+  await prisma.interviewPrep.deleteMany({
+    where: { jobId },
+  });
+
+  await prisma.interviewPrep.create({
+    data: {
+      jobId,
+      type: "FULL",
+      questions: interviewData.questions,
+      starDrafts: interviewData.starDrafts,
+      technicalTopics: interviewData.technicalTopics,
+    },
+  });
+
+  revalidatePath(`/dashboard/jobs/${jobId}`);
+}
+
+
+
+export async function updateJobMeta(
+  jobId: string,
+  data: {
+    status?: JobStatus;
+    notes?: string;
+  }
+) {
+  const user = await getCurrentUser();
+  if (!user?.id) throw new Error("Unauthorized");
+
+  const job = await prisma.job.findFirst({
+    where: {
+      id: jobId,
+      userId: user.id,
+    },
+  });
+
+  if (!job) throw new Error("Job not found");
+
+  const updateData: Prisma.JobUpdateInput = {};
+
+  if (data.status) {
+    updateData.status = data.status;
+  }
+
+  if (data.notes !== undefined) {
+    updateData.notes = data.notes;
+  }
+
+  await prisma.job.update({
+    where: { id: jobId },
+    data: updateData,
+  });
+
+  revalidatePath(`/dashboard/jobs/${jobId}`);
 }

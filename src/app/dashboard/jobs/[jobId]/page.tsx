@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { calculateSkillGap } from "@/lib/ai/skill-gap";
 import { applySuggestion } from "@/app/dashboard/actions";
 
+import { regenerateInterviewPrep } from "@/app/dashboard/actions";
+
 interface Props {
   params: Promise<{
     jobId: string;
@@ -25,10 +27,12 @@ export default async function JobDetailPage({ params }: Props) {
     },
     include: {
       skillGaps: true,
+      interviewPreps: true,
+
       versions: {
         include: {
           resume: true,
-          atsResults: true,
+          aTSResults: true,
           suggestions: true,
         },
         orderBy: {
@@ -196,7 +200,7 @@ export default async function JobDetailPage({ params }: Props) {
           </p>
         ) : (
           job.versions.map((version) => {
-            const ats = version.atsResults?.[0];
+            const ats = version.aTSResults?.[0];
 
             return (
               <div
@@ -219,6 +223,75 @@ export default async function JobDetailPage({ params }: Props) {
                     </div>
                   )}
                 </div>
+
+                {/* Interview Preparation */}
+                {job.interviewPreps.length > 0 && (
+                  <div className="mt-12 space-y-6">
+                    <h2 className="text-xl font-semibold">
+                      Interview Preparation
+                    </h2>
+
+                    {job.interviewPreps.map((prep) => {
+                      const questions = prep.questions as string[];
+                      const starDrafts = prep.starDrafts as string[];
+                      const technicalTopics = prep.technicalTopics as string[];
+
+                      return (
+                        <div
+                          key={prep.id}
+                          className="border rounded-lg p-6 bg-white text-black shadow-sm space-y-4"
+                        >
+                          <div>
+                            <h3 className="font-semibold mb-2">
+                              Technical Topics
+                            </h3>
+                            <ul className="list-disc ml-6 text-sm">
+                              {technicalTopics.map((topic, index) => (
+                                <li key={index}>{topic}</li>
+                              ))}
+                            </ul>
+                          </div>
+
+                          <div>
+                            <h3 className="font-semibold mb-2">
+                              Interview Questions
+                            </h3>
+                            <ul className="list-disc ml-6 text-sm">
+                              {questions.map((question, index) => (
+                                <li key={index}>{question}</li>
+                              ))}
+                            </ul>
+                          </div>
+
+                          <div>
+                            <h3 className="font-semibold mb-2">
+                              STAR Answer Framework
+                            </h3>
+                            <ul className="list-disc ml-6 text-sm">
+                              {starDrafts.map((draft, index) => (
+                                <li key={index}>{draft}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <form
+                  action={async () => {
+                    "use server";
+                    await regenerateInterviewPrep(job.id);
+                  }}
+                >
+                  <button
+                    type="submit"
+                    className="bg-black text-white px-4 py-2 rounded text-sm"
+                  >
+                    Regenerate Interview Prep
+                  </button>
+                </form>
 
                 {/* AI Suggestions */}
                 {version.suggestions?.filter((s) => !s.applied).length > 0 && (
